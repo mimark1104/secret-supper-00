@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from './supabaseClient';
 
 // Room Data with Numeric Max Capacity and Mixed Media (Images + Videos)
 const ROOMS_DATA = [
@@ -108,14 +109,12 @@ const ROOMS_DATA = [
   }
 ];
 
-// Helper to get a safe still image URL for room card previews
 function getRoomPreviewImage(room) {
   const first = room.media?.[0];
   if (!first) return '';
   return first.type === 'video' ? first.poster || '' : first.src;
 }
 
-// Single Official Set Course Menu
 const SET_COURSE_PRICE = 5000;
 
 const SET_COURSES = [
@@ -140,7 +139,6 @@ const SET_COURSES = [
   }
 ];
 
-// Shuttle Transfer Base Options
 const SHUTTLE_OPTIONS = [
   { id: 'none', label: 'No Shuttle Needed', price: 0, maxPax: '-' },
   { id: 'habal', label: 'Habal-Habal (Motorcycle)', price: 200, maxPax: '1 pax max' },
@@ -148,7 +146,6 @@ const SHUTTLE_OPTIONS = [
   { id: 'suv', label: 'Private SUV Transfer', price: 500, maxPax: '5 pax max' }
 ];
 
-// Helper to determine if a room is locked out based on Paid + Fulfilled reservations
 function getRoomAvailability(room, reservations) {
   if (room.id === 'none') {
     return { isDisabled: false, reason: '', remainingSlots: 999 };
@@ -181,6 +178,26 @@ function getRoomAvailability(room, reservations) {
   return { isDisabled: false, reason: '', remainingSlots: room.maxCapacity };
 }
 
+// Helper to map Supabase snake_case rows to frontend camelCase objects
+function mapDbRowToReservation(row) {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    email: row.email,
+    phone: row.phone || '',
+    telegram: row.telegram || '-',
+    roomId: row.room_id,
+    room: row.room,
+    bookingType: row.booking_type,
+    paxCount: row.pax_count,
+    shuttle: row.shuttle,
+    totalCost: row.total_cost,
+    paymentStatus: row.payment_status,
+    fulfillmentStatus: row.fulfillment_status,
+    date: row.event_date
+  };
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('00');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -190,30 +207,35 @@ export default function App() {
   const [adminPin, setAdminPin] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const [reservations, setReservations] = useState([
-    {
-      id: 'RES-8921',
-      fullName: 'Elena Rostova',
-      email: 'elena@design.org',
-      phone: '+63 917 123 4567',
-      telegram: '@elenarostova',
-      roomId: 'garage',
-      room: 'GARAGE ROOM',
-      bookingType: 'Solo',
-      paxCount: 1,
-      shuttle: 'Tuktuk Transfer (FREE w/ Room)',
-      totalCost: 11000,
-      paymentStatus: 'Unpaid',
-      fulfillmentStatus: 'Pending',
-      date: '2026-11-28'
-    }
-  ]);
+  // Clean empty initial state—populated from Supabase
+  const [reservations, setReservations] = useState([]);
+  const [isLoadingReservations, setIsLoadingReservations] = useState(true);
 
+  const fetchReservations = async () => {
+    setIsLoadingReservations(true);
+    const { data, error } = await supabase
+      .from('reservations')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching reservations:', error.message);
+    } else if (data) {
+      setReservations(data.map(mapDbRowToReservation));
+    }
+    setIsLoadingReservations(false);
+  };
+
+  useEffect(() => {
+    fetchReservations();
+  }, []);
+
+  // Keyboard shortcut only (Ctrl+Shift+A / Cmd+Shift+A)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
         e.preventDefault();
-        setIsAdminOpen(true);
+        setIsAdminOpen(prev => !prev);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -222,7 +244,6 @@ export default function App() {
 
   return (
     <div style={styles.appWrapper}>
-      {/* Full-App Background Video */}
       <video
         autoPlay
         loop
@@ -232,7 +253,7 @@ export default function App() {
         style={styles.bgVideo}
       >
         <source
-          src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+          src="https://ik.imagekit.io/xbpqihuhq/171308-845439549.mp4"
           type="video/mp4"
         />
       </video>
@@ -242,7 +263,7 @@ export default function App() {
       <div style={styles.mainContainer}>
         <header style={styles.header}>
           <div style={styles.brandTitle} onClick={() => setActiveTab('00')}>
-            <span style={styles.brandBadge}>HP // MM</span>
+            {/* <span style={styles.brandBadge}>HP // MM</span> */}
             <span style={styles.brandText}>House Plant</span>
           </div>
 
@@ -250,7 +271,7 @@ export default function App() {
             style={styles.menuToggleButton}
             onClick={() => setMenuOpen(!menuOpen)}
           >
-            {menuOpen ? '[ CLOSE ✕ ]' : ' ☰ '}
+            {menuOpen ? '✕' : '☰'}
           </button>
         </header>
 
@@ -301,10 +322,11 @@ export default function App() {
           <ReservationTab
             reservations={reservations}
             setReservations={setReservations}
+            isLoadingReservations={isLoadingReservations}
           />
         )}
 
-        {/* Custom Footer */}
+        {/* Public Footer (No Admin Button or Trigger) */}
         <footer style={styles.footer}>
           <div style={styles.footerMainBlock}>
             <div style={styles.footerEventDate}>November 28, Saturday | 4 PM</div>
@@ -318,15 +340,8 @@ export default function App() {
             </div>
           </div>
           <div style={styles.footerBottomRow}>
-            <span>SECRET SUPPER CLUB // 2026</span>
-            <span
-              style={{ cursor: 'pointer', opacity: 0.85 }}
-              onClick={(e) => {
-                if (e.detail === 3) setIsAdminOpen(true);
-              }}
-            >
-              [SYS // ADMIN LOG]
-            </span>
+            <span>SECRET SUPPER // 2026</span>
+            <span>PUERTO GALERA</span>
           </div>
         </footer>
       </div>
@@ -344,6 +359,7 @@ export default function App() {
           setIsAuthenticated={setIsAuthenticated}
           reservations={reservations}
           setReservations={setReservations}
+          refreshReservations={fetchReservations}
         />
       )}
     </div>
@@ -487,7 +503,7 @@ function RoomsTab({ setSelectedGallery, setActiveTab, reservations }) {
   );
 }
 
-// 02. Single Course Dining Tab (5-Course Vegetarian Weed-Infused Menu)
+// 02. Single Course Dining Tab
 function FoodMenuTab({ setActiveTab }) {
   const menu = SET_COURSES[0];
 
@@ -546,7 +562,7 @@ function FoodMenuTab({ setActiveTab }) {
   );
 }
 
-// 03. Reservation Tab
+// 03. Reservation Tab (Inserts directly into Supabase)
 function ReservationTab({ reservations, setReservations }) {
   const getInitialRoom = () => {
     const firstOpen = ROOMS_DATA.find(r => r.id !== 'none' && !getRoomAvailability(r, reservations).isDisabled);
@@ -564,6 +580,7 @@ function ReservationTab({ reservations, setReservations }) {
     shuttle: 'none'
   });
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmedModalData, setConfirmedModalData] = useState(null);
 
   const selectedRoom = ROOMS_DATA.find(r => r.id === formData.room) || ROOMS_DATA[0];
@@ -604,32 +621,54 @@ function ReservationTab({ reservations, setReservations }) {
     }));
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (roomAvailability.isDisabled) {
       alert('This room has already been fulfilled and paid. Please choose another option.');
       return;
     }
 
-    const newReservation = {
-      id: `RES-${Math.floor(1000 + Math.random() * 9000)}`,
-      fullName: formData.fullName,
+    setIsSubmitting(true);
+
+    const reservationId = `RES-${Math.floor(1000 + Math.random() * 9000)}`;
+    const eventDate = '2026-11-28';
+    const shuttleSummary = `${selectedShuttle.label}${hasRoomSelected && selectedShuttle.id !== 'none' ? ' (FREE w/ Room)' : ''}`;
+    const bookingTypeValue = hasRoomSelected ? formData.bookingType : 'N/A';
+
+    const dbPayload = {
+      id: reservationId,
+      full_name: formData.fullName,
       email: formData.email,
-      phone: formData.phone,
+      phone: formData.phone || '',
       telegram: formData.telegram || '-',
-      roomId: selectedRoom.id,
+      room_id: selectedRoom.id,
       room: selectedRoom.title,
-      bookingType: hasRoomSelected ? formData.bookingType : 'N/A',
-      paxCount: seatQuantity,
-      shuttle: `${selectedShuttle.label}${hasRoomSelected && selectedShuttle.id !== 'none' ? ' (FREE w/ Room)' : ''}`,
-      totalCost,
-      paymentStatus: 'Unpaid',
-      fulfillmentStatus: 'Pending',
-      date: new Date().toISOString().split('T')[0]
+      booking_type: bookingTypeValue,
+      pax_count: seatQuantity,
+      shuttle: shuttleSummary,
+      total_cost: totalCost,
+      payment_status: 'Unpaid',
+      fulfillment_status: 'Pending',
+      event_date: eventDate
     };
 
-    setReservations(prev => [newReservation, ...prev]);
-    setConfirmedModalData(newReservation);
+    const { data, error } = await supabase
+      .from('reservations')
+      .insert([dbPayload])
+      .select()
+      .single();
+
+    setIsSubmitting(false);
+
+    if (error) {
+      console.error('Supabase insert error:', error.message);
+      alert(`Could not save reservation: ${error.message}`);
+      return;
+    }
+
+    const savedReservation = mapDbRowToReservation(data);
+    setReservations(prev => [savedReservation, ...prev]);
+    setConfirmedModalData(savedReservation);
 
     setFormData({
       fullName: '',
@@ -670,7 +709,7 @@ function ReservationTab({ reservations, setReservations }) {
             type="email"
             required
             style={styles.inputField}
-            placeholder="juandelacruz@gmail.com"
+            placeholder="guest@email.com"
             value={formData.email}
             onChange={e => setFormData({ ...formData, email: e.target.value })}
           />
@@ -804,8 +843,16 @@ function ReservationTab({ reservations, setReservations }) {
             })}
           </select>
 
-          <button type="submit" style={styles.primaryButtonBlock}>
-            CONFIRM RESERVATION →
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            style={{
+              ...styles.primaryButtonBlock,
+              opacity: isSubmitting ? 0.7 : 1,
+              cursor: isSubmitting ? 'wait' : 'pointer'
+            }}
+          >
+            {isSubmitting ? 'SAVING RESERVATION...' : 'CONFIRM RESERVATION →'}
           </button>
         </form>
 
@@ -913,7 +960,7 @@ function GalleryModal({ gallery, onClose }) {
           <span>
             {gallery.room.title} // {current.type === 'video' ? 'VIDEO' : 'PHOTO'} ({index + 1}/{mediaList.length})
           </span>
-          <button style={styles.closeBtn} onClick={onClose}>[ CLOSE ✕ ]</button>
+          <button style={styles.closeBtn} onClick={onClose}>[ ✕ ]</button>
         </div>
         <div style={styles.modalImageWrapper}>
           {current.type === 'video' ? (
@@ -948,20 +995,47 @@ function GalleryModal({ gallery, onClose }) {
   );
 }
 
-// Secret PIN Admin Modal
-function AdminModal({ onClose, adminPin, setAdminPin, isAuthenticated, setIsAuthenticated, reservations, setReservations }) {
+// Secret PIN Admin Modal (Persists Payment & Fulfillment updates to Supabase)
+function AdminModal({
+  onClose,
+  adminPin,
+  setAdminPin,
+  isAuthenticated,
+  setIsAuthenticated,
+  reservations,
+  setReservations,
+  refreshReservations
+}) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [updatingId, setUpdatingId] = useState(null);
 
   const handleLogin = (e) => {
     e.preventDefault();
     if (adminPin === 'admin123') {
       setIsAuthenticated(true);
+      refreshReservations();
     } else {
       alert('INVALID SECURITY PIN');
     }
   };
 
-  const toggleField = (id, field, nextValue) => {
+  const toggleField = async (id, field, nextValue) => {
+    setUpdatingId(id);
+    const dbColumn = field === 'paymentStatus' ? 'payment_status' : 'fulfillment_status';
+
+    const { error } = await supabase
+      .from('reservations')
+      .update({ [dbColumn]: nextValue })
+      .eq('id', id);
+
+    setUpdatingId(null);
+
+    if (error) {
+      console.error('Supabase update error:', error.message);
+      alert(`Failed to update status: ${error.message}`);
+      return;
+    }
+
     setReservations(prev =>
       prev.map(r => (r.id === id ? { ...r, [field]: nextValue } : r))
     );
@@ -1034,7 +1108,7 @@ function AdminModal({ onClose, adminPin, setAdminPin, isAuthenticated, setIsAuth
             <input
               type="password"
               style={styles.inputField}
-              placeholder="PIN (admin123)"
+              placeholder="PIN"
               value={adminPin}
               onChange={e => setAdminPin(e.target.value)}
             />
@@ -1043,7 +1117,7 @@ function AdminModal({ onClose, adminPin, setAdminPin, isAuthenticated, setIsAuth
         ) : (
           <div style={{ padding: '24px' }}>
             <p style={{ ...styles.bodyText, fontSize: '13px', marginBottom: '12px' }}>
-              All new reservations default to <strong>Unpaid</strong>. Tagging a room reservation as <strong>PAID</strong> and <strong>FULFILLED</strong> automatically greys out/disables that room (for Solo, or once Shared slots reach max capacity) in the public booking form.
+              Synced with Supabase. Tagging a room reservation as <strong>PAID</strong> and <strong>FULFILLED</strong> automatically locks out that room (for Solo, or once Shared slots reach max capacity) in the public booking form.
             </p>
 
             <div style={styles.adminToolbar}>
@@ -1059,72 +1133,80 @@ function AdminModal({ onClose, adminPin, setAdminPin, isAuthenticated, setIsAuth
               </button>
             </div>
 
-            <div style={{ overflowX: 'auto' }}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th style={styles.th}>ID</th>
-                    <th style={styles.th}>GUEST / TELEGRAM</th>
-                    <th style={styles.th}>ROOM & TYPE</th>
-                    <th style={styles.th}>SHUTTLE</th>
-                    <th style={styles.th}>TOTAL</th>
-                    <th style={styles.th}>PAYMENT</th>
-                    <th style={styles.th}>FULFILLMENT</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredReservations.map(res => (
-                    <tr key={res.id}>
-                      <td style={styles.td}>{res.id}</td>
-                      <td style={styles.td}>
-                        <strong>{res.fullName}</strong>
-                        <br />
-                        <small>{res.telegram || '-'}</small>
-                        <br />
-                        <small>{res.email}</small>
-                      </td>
-                      <td style={styles.td}>
-                        {res.room}
-                        <br />
-                        <small style={{ color: '#816E57', fontWeight: 'bold' }}>
-                          {res.bookingType} {res.bookingType === 'Shared' ? `(${res.paxCount} pax)` : ''}
-                        </small>
-                      </td>
-                      <td style={styles.td}>{res.shuttle}</td>
-                      <td style={styles.td}>₱{res.totalCost.toLocaleString()}</td>
-                      <td style={styles.td}>
-                        <select
-                          value={res.paymentStatus}
-                          onChange={e => toggleField(res.id, 'paymentStatus', e.target.value)}
-                          style={{
-                            ...styles.adminSelect,
-                            backgroundColor: res.paymentStatus === 'Paid' ? '#345346' : '#816E57',
-                            color: '#DCD6CD'
-                          }}
-                        >
-                          <option value="Unpaid">Unpaid</option>
-                          <option value="Paid">Paid</option>
-                        </select>
-                      </td>
-                      <td style={styles.td}>
-                        <select
-                          value={res.fulfillmentStatus}
-                          onChange={e => toggleField(res.id, 'fulfillmentStatus', e.target.value)}
-                          style={{
-                            ...styles.adminSelect,
-                            backgroundColor: res.fulfillmentStatus === 'Fulfilled' ? '#345346' : '#816E57',
-                            color: '#DCD6CD'
-                          }}
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="Fulfilled">Fulfilled</option>
-                        </select>
-                      </td>
+            {filteredReservations.length === 0 ? (
+              <div style={{ padding: '24px', border: '1px dashed #816E57', textAlign: 'center', fontWeight: 'bold' }}>
+                NO RESERVATIONS FOUND YET
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>ID</th>
+                      <th style={styles.th}>GUEST / TELEGRAM</th>
+                      <th style={styles.th}>ROOM & TYPE</th>
+                      <th style={styles.th}>SHUTTLE</th>
+                      <th style={styles.th}>TOTAL</th>
+                      <th style={styles.th}>PAYMENT</th>
+                      <th style={styles.th}>FULFILLMENT</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {filteredReservations.map(res => (
+                      <tr key={res.id} style={{ opacity: updatingId === res.id ? 0.6 : 1 }}>
+                        <td style={styles.td}>{res.id}</td>
+                        <td style={styles.td}>
+                          <strong>{res.fullName}</strong>
+                          <br />
+                          <small>{res.telegram || '-'}</small>
+                          <br />
+                          <small>{res.email}</small>
+                        </td>
+                        <td style={styles.td}>
+                          {res.room}
+                          <br />
+                          <small style={{ color: '#816E57', fontWeight: 'bold' }}>
+                            {res.bookingType} {res.bookingType === 'Shared' ? `(${res.paxCount} pax)` : ''}
+                          </small>
+                        </td>
+                        <td style={styles.td}>{res.shuttle}</td>
+                        <td style={styles.td}>₱{res.totalCost.toLocaleString()}</td>
+                        <td style={styles.td}>
+                          <select
+                            disabled={updatingId === res.id}
+                            value={res.paymentStatus}
+                            onChange={e => toggleField(res.id, 'paymentStatus', e.target.value)}
+                            style={{
+                              ...styles.adminSelect,
+                              backgroundColor: res.paymentStatus === 'Paid' ? '#345346' : '#816E57',
+                              color: '#DCD6CD'
+                            }}
+                          >
+                            <option value="Unpaid">Unpaid</option>
+                            <option value="Paid">Paid</option>
+                          </select>
+                        </td>
+                        <td style={styles.td}>
+                          <select
+                            disabled={updatingId === res.id}
+                            value={res.fulfillmentStatus}
+                            onChange={e => toggleField(res.id, 'fulfillmentStatus', e.target.value)}
+                            style={{
+                              ...styles.adminSelect,
+                              backgroundColor: res.fulfillmentStatus === 'Fulfilled' ? '#345346' : '#816E57',
+                              color: '#DCD6CD'
+                            }}
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="Fulfilled">Fulfilled</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1166,7 +1248,7 @@ const styles = {
     left: 0,
     width: '100vw',
     height: '100vh',
-    backgroundColor: 'rgba(2, 48, 2, 0.64)',
+    backgroundColor: 'rgba(5, 65, 15, 0.75)',
     zIndex: 1,
     pointerEvents: 'none'
   },
@@ -1198,7 +1280,7 @@ const styles = {
     cursor: 'pointer'
   },
   brandBadge: {
-    backgroundColor: 'rgb(52 83 70)',
+    backgroundColor: '#345346',
     color: '#DCD6CD',
     padding: '4px 8px',
     fontWeight: 'bold',
@@ -1319,7 +1401,7 @@ const styles = {
     marginBottom: '24px'
   },
   sectionHeaderCard: {
-    backgroundColor: 'rgba(220, 205, 208, 0.9)',
+    backgroundColor: 'rgba(220, 214, 205, 0.9)',
     backdropFilter: 'blur(6px)',
     border: '2px solid #816E57',
     boxShadow: '4px 4px 0px #816E57',
